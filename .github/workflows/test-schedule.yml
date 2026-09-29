@@ -2,8 +2,8 @@ name: Scheduled test (temporary)
 
 on:
   schedule:
-    # One-shot test: 2026-09-29 00:06 UTC (remove after it fires)
-    - cron: "6 0 * * *"
+    # Recurring test so it cannot miss its first slot; remove after it fires.
+    - cron: "*/10 * * * *"
 
 jobs:
   test:
