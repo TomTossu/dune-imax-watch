@@ -27,7 +27,7 @@ from bs4 import BeautifulSoup
 
 HOMEPAGE = "https://www.todoshowcase.com/"
 IMAX_BLOCK_ID = "cartelera_cine_40219"
-MOVIE_PATTERN = re.compile(r"dune", re.IGNORECASE)
+DEFAULT_TARGET_MOVIE = "dune"
 STATE_FILE = Path(__file__).resolve().parent / "state.json"
 RESEND_ENDPOINT = "https://api.resend.com/emails"
 DEFAULT_FROM = "onboarding@resend.dev"
@@ -38,7 +38,7 @@ USER_AGENT = (
 
 
 def parse_args() -> argparse.Namespace:
-    parser = argparse.ArgumentParser(description="Watch Showcase IMAX for Dune.")
+    parser = argparse.ArgumentParser(description="Watch Showcase IMAX for a movie.")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -52,7 +52,12 @@ def parse_args() -> argparse.Namespace:
     parser.add_argument(
         "--force",
         action="store_true",
-        help="simulate a Dune match to exercise the full alert path",
+        help="simulate a match to exercise the full alert path",
+    )
+    parser.add_argument(
+        "--match",
+        default=None,
+        help="movie title substring to look for (overrides TARGET_MOVIE)",
     )
     return parser.parse_args()
 
@@ -139,9 +144,9 @@ def save_state(state: dict) -> None:
     )
 
 
-def build_email(films: list[dict], used_fallback: bool) -> tuple[str, str]:
+def build_email(films: list[dict], used_fallback: bool, target: str) -> tuple[str, str]:
     titles = ", ".join(f["title"] for f in films)
-    subject = f"[Dune IMAX] {titles} ya esta en la cartelera"
+    subject = f"[IMAX] {titles} ya esta en la cartelera"
 
     rows = []
     for film in films:
@@ -162,7 +167,7 @@ def build_email(films: list[dict], used_fallback: bool) -> tuple[str, str]:
     html = f"""\
 <html>
   <body style="font-family:Arial,sans-serif;color:#1f2937">
-    <h2 style="color:#4011a7">Dune ya aparece en Showcase IMAX</h2>
+    <h2 style="color:#4011a7">{target.title()} ya aparece en Showcase IMAX</h2>
     <ul>{''.join(rows)}</ul>
     {warning}
     <p>Compra de entradas: <a href="{HOMEPAGE}">{HOMEPAGE}</a></p>
@@ -214,17 +219,22 @@ def main() -> None:
         )
         return
 
+    target = (args.match or os.environ.get("TARGET_MOVIE") or DEFAULT_TARGET_MOVIE).strip()
+    target = target or DEFAULT_TARGET_MOVIE
+    pattern = re.compile(re.escape(target), re.IGNORECASE)
+    print(f"Looking for '{target}' in the IMAX block.")
+
     html = fetch_html(HOMEPAGE)
     films, used_fallback = extract_films(html)
     if used_fallback:
         print(f"Warning: #{IMAX_BLOCK_ID} not found; scanned the whole page.")
 
-    matches = [f for f in films if MOVIE_PATTERN.search(f["title"])]
+    matches = [f for f in films if pattern.search(f["title"])]
 
     if args.force:
         matches = matches or [
             {
-                "title": "Dune: FORCE TEST",
+                "title": f"{target.title()}: FORCE TEST",
                 "film_id": "FORCE-TEST",
                 "tags": ["TEST"],
                 "url": HOMEPAGE,
@@ -233,10 +243,10 @@ def main() -> None:
         print("--force enabled: bypassing state de-duplication.")
 
     if not matches:
-        print(f"No Dune match in the IMAX block (checked {len(films)} films).")
+        print(f"No '{target}' match in the IMAX block (checked {len(films)} films).")
         return
 
-    print(f"Found {len(matches)} Dune match(es):")
+    print(f"Found {len(matches)} '{target}' match(es):")
     for film in matches:
         print(f"  - {film['title']} [{', '.join(film['tags']) or '-'}] {film['url']}")
 
@@ -249,11 +259,11 @@ def main() -> None:
     new_matches = [f for f in matches if identifier(f) not in notified]
 
     if not new_matches and not args.force:
-        print("Dune was already notified previously; skipping email.")
+        print(f"'{target}' was already notified previously; skipping email.")
         return
 
     to_send = new_matches or matches
-    subject, body = build_email(to_send, used_fallback)
+    subject, body = build_email(to_send, used_fallback, target)
     send_email(subject, body)
 
     if not args.force:
