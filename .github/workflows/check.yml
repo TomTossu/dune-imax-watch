@@ -1,3 +1,4 @@
+# Production watcher: Dune in the Showcase IMAX block.
 name: Check Dune IMAX
 
 on:
