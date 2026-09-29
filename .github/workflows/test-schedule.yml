@@ -30,6 +30,7 @@ jobs:
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
           RESEND_FROM: ${{ secrets.RESEND_FROM }}
           TARGET_MOVIE: "avengers endgame"
+          ALWAYS_NOTIFY: "1"
         run: python check_dune.py
 
       - name: Persist test state

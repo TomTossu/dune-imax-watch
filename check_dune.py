@@ -59,6 +59,11 @@ def parse_args() -> argparse.Namespace:
         default=None,
         help="movie title substring to look for (overrides TARGET_MOVIE)",
     )
+    parser.add_argument(
+        "--always",
+        action="store_true",
+        help="email on every run, ignoring the state de-duplication",
+    )
     return parser.parse_args()
 
 
@@ -222,7 +227,8 @@ def main() -> None:
     target = (args.match or os.environ.get("TARGET_MOVIE") or DEFAULT_TARGET_MOVIE).strip()
     target = target or DEFAULT_TARGET_MOVIE
     pattern = re.compile(re.escape(target), re.IGNORECASE)
-    print(f"Looking for '{target}' in the IMAX block.")
+    always = args.always or os.environ.get("ALWAYS_NOTIFY", "").lower() in {"1", "true", "yes"}
+    print(f"Looking for '{target}' in the IMAX block." + (" (always notify)" if always else ""))
 
     html = fetch_html(HOMEPAGE)
     films, used_fallback = extract_films(html)
@@ -258,19 +264,21 @@ def main() -> None:
     notified = set(state.get("notified", []))
     new_matches = [f for f in matches if identifier(f) not in notified]
 
-    if not new_matches and not args.force:
+    if not new_matches and not args.force and not always:
         print(f"'{target}' was already notified previously; skipping email.")
         return
 
-    to_send = new_matches or matches
+    to_send = matches if (always or args.force) else new_matches
     subject, body = build_email(to_send, used_fallback, target)
     send_email(subject, body)
 
-    if not args.force:
+    if not args.force and not always:
         notified.update(identifier(f) for f in to_send)
         state["notified"] = sorted(notified)
         save_state(state)
         print(f"state.json updated ({len(state['notified'])} id(s) tracked).")
+    elif always:
+        print("ALWAYS_NOTIFY set: state left unchanged, email sent every run.")
 
 
 if __name__ == "__main__":
