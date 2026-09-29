@@ -91,9 +91,10 @@ export ALERT_EMAIL=you@example.com
 ## Workflows
 
 - `check.yml` - production watcher (targets Dune, de-duplicates).
-- `test-schedule.yml` - **temporary** test that targets a currently-playing
-  movie (Avengers Endgame) with `ALWAYS_NOTIFY=1` so every run emails. Delete it
-  when you no longer need the test emails.
+- `test-avengers.yml` - **temporary** test that targets a currently-playing
+  movie (Avengers Endgame) with `ALWAYS_NOTIFY=1` so every run emails. Triggered
+  by the same cron-job.org dispatch. Delete it when you no longer need the test
+  emails (each 10-min run sends a mail and consumes Resend's free daily quota).
 - `keepalive.yml` - monthly commit so GitHub does not disable the `schedule`
   fallback after 60 days of inactivity.
 
