@@ -19,9 +19,9 @@ script falls back to scanning the whole page and adds a warning to the email.
 ## Triggering (read this)
 
 GitHub's built-in `schedule` cron is **not reliable**: runs can be delayed or
-dropped under load and changed cron expressions may be ignored. So the primary
-trigger is an **external cron that calls GitHub's `repository_dispatch` API**,
-which starts the workflow deterministically.
+dropped under load and changed cron expressions may be ignored. So instead the
+workflow is triggered by an **external cron that calls GitHub's
+`repository_dispatch` API**, which starts it deterministically.
 
 ### Set up the external trigger
 
@@ -90,12 +90,11 @@ export ALERT_EMAIL=you@example.com
 
 ## Workflows
 
-- `check.yml` - production watcher (targets Dune, de-duplicates).
-- `keepalive.yml` - monthly commit so GitHub does not disable the `schedule`
-  fallback after 60 days of inactivity.
+- `check.yml` - production watcher, triggered by `repository_dispatch`
+  (targets Dune, de-duplicates).
 
 ## Notes
 
 - Only one HTTP request per run, with a normal browser User-Agent.
-- The GitHub `schedule` in `check.yml` is kept only as a best-effort fallback;
-  the external trigger is what makes it reliable.
+- Triggering is done entirely by the external cron via `repository_dispatch`;
+  there is no GitHub `schedule` fallback.

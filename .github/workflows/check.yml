@@ -2,9 +2,6 @@
 name: Check Dune IMAX
 
 on:
-  schedule:
-    # Every 3 hours (UTC). GitHub cron may run a few minutes late.
-    - cron: "0 */3 * * *"
   workflow_dispatch:
   repository_dispatch:
     types: [check-dune]
