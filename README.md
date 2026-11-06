@@ -14,12 +14,7 @@ and vice versa.
 ```json
 {
   "watches": [
-    { "id": "dune-imax", "site": "showcase_imax", "movie": "dune" },
-    {
-      "id": "puedes-verlo-todo-cinepolis",
-      "site": "cinepolis",
-      "movie": "Puedes verlo todo"
-    }
+    { "id": "dune-imax", "site": "showcase_imax", "movie": "dune" }
   ]
 }
 ```
@@ -29,32 +24,28 @@ and vice versa.
 - `movie` - case- and accent-insensitive substring matched against titles.
   `"dune"` matches `Duna: Parte Tres`.
 - `require_tags` - optional list of substrings; when set, a match is only
-  alerted if the film has at least one tag containing at least one of them.
-  Not used by the default watchlist; see the Cinepolis notes for the
-  trade-off.
+  alerted if the film has at least one tag containing at least one of them
+  (e.g. `"cartelera"` for the Cinepolis site).
 
 ## Sites
 
 | Site | Status |
 |---|---|
 | `showcase_imax` | Working: parses the IMAX block `#cartelera_cine_40219` on `todoshowcase.com`. Falls back to scanning the whole page (with an email warning) if the block disappears. |
-| `cinepolis` | Working: calls the GraphQL billboard API behind `cinepolis.com/ar`. Titles are tagged `Cartelera` (now-playing, tickets buyable incl. pre-sales) or `Proximamente` (coming-soon), plus the API's own tags such as `Preventa`. |
+| `cinepolis` | Scraper implemented (GraphQL billboard API behind `cinepolis.com/ar`), but **not usable from GitHub Actions**: Cloudflare returns 403 for every client profile from datacenter IPs (verified). Works from residential IPs only. |
 
 ### Cinepolis notes
 
-- The site is a Cloudflare-protected SPA. Plain `requests` gets a 403, so the
-  scraper uses `curl_cffi` with a Chrome TLS fingerprint (dependency already
-  in `requirements.txt`).
-- `availableForSale` is `True` even for coming-soon titles, so the reliable
-  "tickets start selling" signal is the movie **appearing in the now-playing
-  billboard** (`Cartelera` tag).
-- The default watchlist alerts on **either** billboard: first when the movie
-  appears in "Proximamente" (the email says tickets are not on sale yet -
-  useful as an early pipeline test) and again when it moves to "Cartelera".
-  This works because de-duplication is per film *and* per billboard.
-  To alert only when tickets are actually on sale, add
-  `"require_tags": ["cartelera"]` to the watch.
-- The API key is the public one embedded in the Cinepolis web app.
+- Cloudflare blocks plain clients, so the scraper uses `curl_cffi` with a
+  Chrome TLS fingerprint. Even so, the API hard-blocks datacenter IP ranges,
+  so this site can only be watched from a home network (manual
+  `python check.py --watch ...` runs).
+- Titles are tagged `Cartelera` (now-playing, tickets buyable incl.
+  pre-sales) or `Proximamente` (coming-soon). `availableForSale` is `True`
+  even for coming-soon titles, so the billboard is the real "on sale"
+  signal; `"require_tags": ["cartelera"]` restricts alerts to it.
+- De-duplication is per film *and* per billboard, so a movie alerts again
+  when it moves from Proximamente to Cartelera.
 
 ## How it works
 
@@ -174,6 +165,6 @@ right moment.
   there is no GitHub `schedule` fallback.
 - If a site errors, the run reports the failure and continues with the other
   watches (a failed watch exits non-zero so GitHub Actions flags it).
-- The Cinepolis API rejects GitHub Actions' datacenter IPs with a 403 (only
-  residential IPs pass), so the Cinepolis watch fails in Actions; the
-  Showcase watch works fine there.
+- The Cinepolis API rejects GitHub Actions' datacenter IPs with a 403 for
+  every TLS profile (verified by a one-off diagnostic run), so Cinepolis
+  watches only work from residential IPs — i.e. manual local runs.
