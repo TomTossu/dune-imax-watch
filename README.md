@@ -1,20 +1,71 @@
-# dune-imax-watch
+# Cinema watchlist
 
-Checks the Showcase **IMAX Theatre** listings (Argentina) and emails you the
-moment the new **Dune** movie appears, including the pre-sale ("Venta
-Anticipada") listing. Emails are sent through [Resend](https://resend.com), so
-no personal email credentials are used.
+Watches cinema sites for specific movies and emails you the moment a movie
+appears in the listings (including pre-sale "Venta Anticipada" / "Preventa"
+entries). Emails are sent through [Resend](https://resend.com), so no personal
+email credentials are used.
+
+Each entry in the watchlist pairs **one movie with one site**, so watches are
+independent: "Dune on Showcase IMAX" never triggers from Cinépolis listings
+and vice versa.
+
+## Watchlist (`watches.json`)
+
+```json
+{
+  "watches": [
+    { "id": "dune-imax", "site": "showcase_imax", "movie": "dune" },
+    {
+      "id": "puedes-verlo-todo-cinepolis",
+      "site": "cinepolis",
+      "movie": "Puedes verlo todo"
+    }
+  ]
+}
+```
+
+- `id` - unique name for the watch (used for de-duplication and `--watch`).
+- `site` - one of the sites below.
+- `movie` - case- and accent-insensitive substring matched against titles.
+  `"dune"` matches `Duna: Parte Tres`.
+- `require_tags` - optional list of substrings; when set, a match is only
+  alerted if the film has at least one tag containing at least one of them.
+  Not used by the default watchlist; see the Cinepolis notes for the
+  trade-off.
+
+## Sites
+
+| Site | Status |
+|---|---|
+| `showcase_imax` | Working: parses the IMAX block `#cartelera_cine_40219` on `todoshowcase.com`. Falls back to scanning the whole page (with an email warning) if the block disappears. |
+| `cinepolis` | Working: calls the GraphQL billboard API behind `cinepolis.com/ar`. Titles are tagged `Cartelera` (now-playing, tickets buyable incl. pre-sales) or `Proximamente` (coming-soon), plus the API's own tags such as `Preventa`. |
+
+### Cinepolis notes
+
+- The site is a Cloudflare-protected SPA. Plain `requests` gets a 403, so the
+  scraper uses `curl_cffi` with a Chrome TLS fingerprint (dependency already
+  in `requirements.txt`).
+- `availableForSale` is `True` even for coming-soon titles, so the reliable
+  "tickets start selling" signal is the movie **appearing in the now-playing
+  billboard** (`Cartelera` tag).
+- The default watchlist alerts on **either** billboard: first when the movie
+  appears in "Proximamente" (the email says tickets are not on sale yet -
+  useful as an early pipeline test) and again when it moves to "Cartelera".
+  This works because de-duplication is per film *and* per billboard.
+  To alert only when tickets are actually on sale, add
+  `"require_tags": ["cartelera"]` to the watch.
+- The API key is the public one embedded in the Cinepolis web app.
 
 ## How it works
 
-1. Downloads `https://www.todoshowcase.com/` (plain server-rendered HTML).
-2. Parses the IMAX Theatre block `#cartelera_cine_40219`.
-3. Matches any movie title containing the target (default `"dune"`).
-4. Emails you via Resend the first time a match is seen, then records its
-   `filmid` in `state.json` so you are not spammed on later runs.
-
-If the `#cartelera_cine_40219` block ever disappears (site redesign), the
-script falls back to scanning the whole page and adds a warning to the email.
+1. Reads `watches.json` and runs each watch in sequence.
+2. Fetches the site's listings and matches the movie (accent/case-folded
+   substring).
+3. Emails you via Resend the first time a match is seen, then records the
+   match in `state.json` under the watch's `id` so you are not spammed on
+   later runs.
+4. State is committed back to the repo by the workflow, so de-duplication
+   survives across runs.
 
 ## Triggering (read this)
 
@@ -28,14 +79,14 @@ workflow is triggered by an **external cron that calls GitHub's
 1. Create a **fine-grained** personal access token
    (GitHub -> Settings -> Developer settings -> Personal access tokens ->
    Fine-grained tokens):
-   - Repository access: **Only select repositories** -> `dune-imax-watch`
+   - Repository access: **Only select repositories** -> this repo
    - Permissions: **Contents: Read and write** (required for
      `repository_dispatch`)
    - Give it an expiry you are comfortable with.
 2. Create a free account at https://cron-job.org (or any scheduler that can
    send a custom POST with headers; UptimeRobot cannot).
 3. Create a cron job:
-   - URL: `https://api.github.com/repos/<owner>/dune-imax-watch/dispatches`
+   - URL: `https://api.github.com/repos/<owner>/<repo>/dispatches`
    - Schedule: every 10 minutes (or your preferred interval)
    - Method: `POST`
    - Headers:
@@ -45,7 +96,7 @@ workflow is triggered by an **external cron that calls GitHub's
      - `Content-Type: application/json`
    - Request body: `{"event_type":"check-dune"}`
 4. Verify a run appears:
-   `gh run list --repo <owner>/dune-imax-watch --event repository_dispatch`
+   `gh run list --repo <owner>/<repo> --event repository_dispatch`
 
 The PAT is only stored in the scheduler and only has access to this one repo,
 so it can be revoked at any time.
@@ -57,7 +108,6 @@ so it can be revoked at any time.
 | `RESEND_API_KEY` | repo secret | Resend API key |
 | `ALERT_EMAIL` | repo secret | recipient (must be your Resend account email until a domain is verified) |
 | `RESEND_FROM` | repo secret | optional, defaults to `onboarding@resend.dev` |
-| `TARGET_MOVIE` | workflow env / CLI | title substring to watch, default `dune` |
 | `ALWAYS_NOTIFY` | workflow env | if truthy, email on every run and ignore `state.json` |
 
 ## One-time setup: Resend and GitHub
@@ -74,11 +124,12 @@ so it can be revoked at any time.
 python -m venv .venv && source .venv/bin/activate
 pip install -r requirements.txt
 
-python check_dune.py --dry-run             # scrape + print, nothing sent
-python check_dune.py --match "avengers"    # watch a different title
-python check_dune.py --always --dry-run     # ignore de-dupe (dry run)
-python check_dune.py --test-email          # send one Resend test
-python check_dune.py --force               # simulate a match
+python check.py --dry-run              # run all watches, print, send nothing
+python check.py --watch dune-imax      # run only one watch
+python check.py --match dune           # run watches whose movie contains "dune"
+python check.py --force --dry-run      # simulate matches, print, send nothing
+python check.py --test-email           # send one Resend test
+python check_dune.py --dry-run         # shim: same as --watch dune-imax
 ```
 
 Local runs that send email need the environment variables exported:
@@ -88,13 +139,42 @@ export RESEND_API_KEY=re_xxxxxxxx
 export ALERT_EMAIL=you@example.com
 ```
 
+## Adding a watch
+
+Add an entry to `watches.json`:
+
+```json
+{ "id": "mickey-17-imax", "site": "showcase_imax", "movie": "mickey" }
+```
+
+That's it — the workflow picks it up on the next run. For sites with multiple
+listing states (like Cinepolis), add `require_tags` to only alert at the
+right moment.
+
+## Adding a new site
+
+1. Add a `scrape_<name>` function in `check.py` that returns
+   `(films, meta)` where `films` is a list of
+   `{"title", "film_id", "tags", "url"}` dicts and `meta` may include
+   `{"used_fallback": true}`.
+2. Register it in the `SITES` dict with a `label`, `url`, and `homepage`.
+3. Use `"site": "<name>"` in `watches.json`.
+
 ## Workflows
 
 - `check.yml` - production watcher, triggered by `repository_dispatch`
-  (targets Dune, de-duplicates).
+  (runs every watch, de-duplicates per watch).
 
 ## Notes
 
-- Only one HTTP request per run, with a normal browser User-Agent.
+- One or two HTTP requests per site per run, with a normal browser
+  User-Agent; Cinepolis calls go through `curl_cffi` (Chrome TLS fingerprint)
+  because Cloudflare blocks plain clients.
 - Triggering is done entirely by the external cron via `repository_dispatch`;
   there is no GitHub `schedule` fallback.
+- If a site errors, the run reports the failure and continues with the other
+  watches (a failed watch exits non-zero so GitHub Actions flags it).
+- The Cinepolis API has only been tested from a residential IP. If GitHub
+  Actions' datacenter IPs get Cloudflare-blocked, the fallback is running
+  `check.py` from a home machine on a cron/launchd schedule instead; the
+  script itself needs no changes.

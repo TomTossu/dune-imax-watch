@@ -1,5 +1,5 @@
-# Production watcher: Dune in the Showcase IMAX block.
-name: Check Dune IMAX
+# Production watcher: every entry in watches.json.
+name: Check watchlist
 
 on:
   workflow_dispatch:
@@ -10,7 +10,7 @@ permissions:
   contents: write
 
 concurrency:
-  group: dune-check
+  group: watchlist-check
   cancel-in-progress: true
 
 jobs:
@@ -27,12 +27,12 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      - name: Run watcher
+      - name: Run watchers
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
           ALERT_EMAIL: ${{ secrets.ALERT_EMAIL }}
           RESEND_FROM: ${{ secrets.RESEND_FROM }}
-        run: python check_dune.py
+        run: python check.py
 
       - name: Persist state
         run: |
