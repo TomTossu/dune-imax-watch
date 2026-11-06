@@ -1,4 +1,5 @@
 .env
+run.log
 .venv/
 venv/
 __pycache__/
