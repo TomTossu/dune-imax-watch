@@ -4,11 +4,6 @@
       "id": "dune-imax",
       "site": "showcase_imax",
       "movie": "dune"
-    },
-    {
-      "id": "puedes-verlo-todo-cinepolis",
-      "site": "cinepolis",
-      "movie": "Puedes verlo todo"
     }
   ]
 }
