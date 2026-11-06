@@ -64,69 +64,15 @@ and vice versa.
 3. Emails you via Resend the first time a match is seen, then records the
    match in `state.json` under the watch's `id` so you are not spammed on
    later runs.
-4. State is committed back to the repo by the runner (local `run_local.sh` or
-   the GitHub Actions workflow), so de-duplication survives across runs.
+4. State is committed back to the repo by the workflow, so de-duplication
+   survives across runs.
 
-## Triggering: local runner (primary)
-
-The Cinepolis API is Cloudflare-protected and **rejects GitHub Actions'
-datacenter IPs** (plain clients and datacenter IPs both get 403s), while a
-residential IP works. So the watcher runs on your Mac via launchd every
-10 minutes:
-
-- `run_local.sh` - loads `.env`, runs `check.py`, and pushes `state.json`
-  changes so the repo stays in sync.
-- `com.duneimaxwatch.check.plist` - launchd job (every 600s, logs to
-  `run.log`).
-
-### One-time setup on the Mac
-
-1. Fill in `.env` (gitignored) with the same values as the GitHub secrets:
-
-   ```bash
-   RESEND_API_KEY=re_xxxxxxxx
-   ALERT_EMAIL=you@example.com
-   # RESEND_FROM=          # optional
-   ```
-
-2. Install and load the launchd job:
-
-   ```bash
-   cp com.duneimaxwatch.check.plist ~/Library/LaunchAgents/
-   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.duneimaxwatch.check.plist
-   ```
-
-3. **Grant Full Disk Access to `/bin/zsh`** — required on macOS because
-   TCC blocks launchd/cron children from reading `~/Documents`
-   ("Operation not permitted", "can't open input file"):
-   System Settings -> Privacy & Security -> Full Disk Access -> `+` ->
-   Cmd+Shift+G -> `/bin/zsh` -> Open -> enable the toggle.
-
-4. Verify:
-
-   ```bash
-   launchctl kickstart -k gui/$(id -u)/com.duneimaxwatch.check
-   tail run.log    # should show both watches running
-   ```
-
-The job runs every 10 minutes while you are logged in (runs catch up when
-the Mac wakes). `run.log` is gitignored and self-rotates by size if it ever
-matters — each run is a few lines.
-
-### Remove the old external trigger
-
-Delete the cron-job.org job that called `repository_dispatch` — with the
-local runner it would just create failing Actions runs every 10 minutes.
-
-## Triggering: GitHub Actions (legacy)
+## Triggering (read this)
 
 GitHub's built-in `schedule` cron is **not reliable**: runs can be delayed or
 dropped under load and changed cron expressions may be ignored. So instead the
 workflow is triggered by an **external cron that calls GitHub's
 `repository_dispatch` API**, which starts it deterministically.
-
-Note: the Cinepolis watch fails with a 403 from Actions' datacenter IPs, so
-Actions is only useful for the Showcase watch or manual dry runs.
 
 ### Set up the external trigger
 
@@ -159,9 +105,9 @@ so it can be revoked at any time.
 
 | Variable | Where | Purpose |
 |---|---|---|
-| `RESEND_API_KEY` | `.env` (local) / repo secret | Resend API key |
-| `ALERT_EMAIL` | `.env` (local) / repo secret | recipient (must be your Resend account email until a domain is verified) |
-| `RESEND_FROM` | `.env` (local) / repo secret | optional, defaults to `onboarding@resend.dev` |
+| `RESEND_API_KEY` | repo secret | Resend API key |
+| `ALERT_EMAIL` | repo secret | recipient (must be your Resend account email until a domain is verified) |
+| `RESEND_FROM` | repo secret | optional, defaults to `onboarding@resend.dev` |
 | `ALWAYS_NOTIFY` | workflow env | if truthy, email on every run and ignore `state.json` |
 
 ## One-time setup: Resend and GitHub
@@ -184,7 +130,6 @@ python check.py --match dune           # run watches whose movie contains "dune"
 python check.py --force --dry-run      # simulate matches, print, send nothing
 python check.py --test-email           # send one Resend test
 python check_dune.py --dry-run         # shim: same as --watch dune-imax
-./run_local.sh                         # what launchd runs: check.py + state push
 ```
 
 Local runs that send email need the environment variables exported:
@@ -225,9 +170,10 @@ right moment.
 - One or two HTTP requests per site per run, with a normal browser
   User-Agent; Cinepolis calls go through `curl_cffi` (Chrome TLS fingerprint)
   because Cloudflare blocks plain clients.
-- The Cinepolis API is only reachable from residential IPs; GitHub Actions'
-  datacenter IPs get a 403, which is why the primary trigger is the local
-  launchd runner. Manual Actions runs still work for the Showcase watch.
+- Triggering is done entirely by the external cron via `repository_dispatch`;
+  there is no GitHub `schedule` fallback.
 - If a site errors, the run reports the failure and continues with the other
-  watches (a failed watch exits non-zero). The local runner only commits
-  `state.json` on a successful run.
+  watches (a failed watch exits non-zero so GitHub Actions flags it).
+- The Cinepolis API rejects GitHub Actions' datacenter IPs with a 403 (only
+  residential IPs pass), so the Cinepolis watch fails in Actions; the
+  Showcase watch works fine there.
