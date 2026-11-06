@@ -1,0 +1,65 @@
+# One-off diagnostic: which client profiles (if any) does the Cinepolis
+# GraphQL API accept from GitHub Actions' datacenter IPs?
+name: Diagnose Cinepolis API
+
+on:
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    steps:
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install curl_cffi
+        run: pip install -q curl_cffi
+
+      - name: Probe impersonation profiles
+        run: |
+          python - <<'EOF'
+          from curl_cffi import requests
+
+          URL = "https://api-g.cinepolis.com/v2/billboards/graphql"
+          QUERY = 'query Movies { movies(countryId: "AR", category: "now-playing", limit: 1) { totalCount } }'
+          HEADERS = {
+              "accept": "*/*",
+              "content-type": "application/json",
+              "country-id": "AR",
+              "language": "ES",
+              "origin": "https://cinepolis.com",
+              "referer": "https://cinepolis.com/",
+              "x-apikey": "lQM6Mkvri1iHksKKCfpAiwGXq0YUZA7Nn6XAXRPr4i13LwXo",
+          }
+
+          profiles = [
+              "chrome", "chrome99", "chrome124", "chrome131", "chrome136",
+              "chrome151_macos", "chrome152", "chrome99_android",
+              "chrome131_android", "safari", "safari270", "safari260_ios",
+              "safari17_2_ios", "edge99", "firefox133", "firefox155",
+              "tor145",
+          ]
+          for p in profiles:
+              try:
+                  r = requests.post(
+                      URL, headers=HEADERS, json={"query": QUERY},
+                      impersonate=p, timeout=20,
+                  )
+                  ok = r.status_code == 200 and "errors" not in r.text[:40]
+                  print(f"{p}: HTTP {r.status_code}{'  <-- WORKS' if ok else ''}")
+              except Exception as e:
+                  print(f"{p}: ERR {type(e).__name__}: {e}")
+
+          # Alternate host guesses, chrome profile
+          for alt in ("https://api.cinepolis.com/v2/billboards/graphql",):
+              try:
+                  r = requests.post(
+                      alt, headers=HEADERS, json={"query": QUERY},
+                      impersonate="chrome", timeout=20,
+                  )
+                  print(f"ALT {alt}: HTTP {r.status_code}")
+              except Exception as e:
+                  print(f"ALT {alt}: ERR {type(e).__name__}: {e}")
+          EOF
